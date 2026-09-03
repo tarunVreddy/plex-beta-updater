@@ -55,11 +55,11 @@ by hand. This script does the whole thing in place.
 Architecture detection covers `x86_64`, `aarch64`, `armv7l` and `i686`, but only
 `x86_64` has been exercised in practice.
 
-Being precise about what "supported" means: version detection, channel
-selection, the plex.tv manifest lookup, session checking and the `--check` /
-`--dry-run` / prompt paths have all been run against a live Fedora Plex server.
-The final download-install-restart sequence is written but has not yet been
-exercised end to end. Use `--dry-run` first.
+Being precise about what "supported" means: the whole flow — manifest lookup,
+version comparison, session check, download, checksum verification, `dnf`
+install, service restart and post-restart verification — has been run end to end
+on Fedora, upgrading a live server from `1.43.3.10896` to the `1.43.4.10903`
+beta.
 
 If you run this on Debian or Ubuntu, start with `--check` and `--dry-run`, and
 please open an issue either way — confirmation that it works is as useful as a
@@ -150,8 +150,8 @@ This script was written by **Claude AI** (Claude Opus 5, running in
 Plex Media Server over SSH rather than from a generic template. The Plex
 downloads API shape, the `Preferences.xml` token location, the package naming
 and the version-comparison behavior were all confirmed against that live server
-before being written into the script — and the check, dry-run and prompt paths
-were run there afterward.
+before being written into the script, and it has since performed a real
+end-to-end beta upgrade on that server.
 
 It's disclosed here because you deserve to know how the code in front of you was
 produced. Judge it on whether it works and reads clearly, and please report
