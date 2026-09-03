@@ -153,6 +153,11 @@ else
     die "no supported package manager found (need rpm/dnf or dpkg/apt)"
 fi
 
+# Only the rpm path has real mileage on it; say so rather than pretend.
+if [[ "$PKG_EXT" == "deb" ]]; then
+    warn "Debian/Ubuntu support is untested. Try --check and --dry-run first."
+fi
+
 case "$(uname -m)" in
     x86_64|amd64)   PKG_BUILD="linux-x86_64" ;;
     aarch64|arm64)  PKG_BUILD="linux-aarch64" ;;

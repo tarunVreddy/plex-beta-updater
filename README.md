@@ -3,6 +3,10 @@
 A single bash script that updates Plex Media Server on Linux from the Plex Pass
 (beta) channel — without the download-to-desktop-then-copy-it-over dance.
 
+> **Status: RPM-based distributions only.** Developed and tested on Fedora with
+> `dnf`. A Debian/Ubuntu code path exists in the script but is **untested** — see
+> [Platform support](#platform-support) before running it on a `.deb` system.
+
 It runs on the Plex server, reads the Plex auth token out of the server's own
 `Preferences.xml`, asks plex.tv what the newest build is, compares it against
 what's installed, and prompts you before installing anything.
@@ -35,9 +39,24 @@ by hand. This script does the whole thing in place.
 - Installs via `dnf`/`rpm` or `apt-get`, restarts the service, and confirms the
   running server actually came back on the new version
 
+## Platform support
+
+| Platform | Status |
+| -------- | ------ |
+| Fedora / RHEL / CentOS / SUSE (`rpm`, `dnf`) | **Supported** — tested |
+| Debian / Ubuntu (`deb`, `apt`) | **Untested** — code path present, unverified |
+| Anything else | Not supported |
+
+Architecture detection covers `x86_64`, `aarch64`, `armv7l` and `i686`, but only
+`x86_64` has been exercised in practice.
+
+If you run this on Debian or Ubuntu, start with `--check` and `--dry-run`, and
+please open an issue either way — confirmation that it works is as useful as a
+bug report.
+
 ## Requirements
 
-- Linux, rpm- or deb-based (tested on Fedora)
+- Linux, RPM-based (see [Platform support](#platform-support))
 - Plex Media Server installed via the official package
 - A Plex Pass account (for the beta channel; `--channel public` needs no pass)
 - `curl`, and either `python3` or `jq`
@@ -96,8 +115,13 @@ plex-beta-updater.sh --check --quiet || [ $? -eq 10 ] && notify "Plex beta avail
 ## Notes
 
 **The token.** It's read from `PlexOnlineToken` in `Preferences.xml`, which is
-why root is required. It's passed to curl through a config file on stdin rather
-than as an argument, so it never appears in `ps` output, and it is never logged.
+why root is required. It's handed to curl through a config file on stdin rather
+than as a command-line argument, so it doesn't show up in `ps` output, and the
+script never echoes or logs it.
+
+Note that if you supply it yourself with `--token`, that *is* visible in `ps`
+for the lifetime of the process. Prefer the default auto-discovery, or export
+`PLEX_TOKEN`, on a machine with other users.
 
 **The official repo.** If you have Plex's yum/apt repo enabled, it serves the
 public channel. A beta build has a higher version than the current stable, so a
