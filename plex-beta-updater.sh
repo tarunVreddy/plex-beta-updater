@@ -86,6 +86,10 @@ EOF
 
 # ------------------------------------------------------------- arg parsing ---
 
+# Keep a pristine copy of argv; the loop below consumes $@ with `shift`, and the
+# sudo re-exec further down still needs the flags the user actually typed.
+ORIG_ARGV=("$@")
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -c|--channel)       CHANNEL="${2:?--channel needs a value}"; shift 2 ;;
@@ -116,7 +120,7 @@ esac
 if [[ $EUID -ne 0 ]]; then
     if command -v sudo >/dev/null 2>&1; then
         info "Re-running under sudo"
-        exec sudo -E -- "$0" "$@"
+        exec sudo -E -- "$0" ${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}
     fi
     die "must run as root (Preferences.xml and package installs need it)"
 fi
