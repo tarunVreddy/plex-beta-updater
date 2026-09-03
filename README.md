@@ -3,9 +3,14 @@
 A single bash script that updates Plex Media Server on Linux from the Plex Pass
 (beta) channel — without the download-to-desktop-then-copy-it-over dance.
 
-> **Status: RPM-based distributions only.** Developed and tested on Fedora with
-> `dnf`. A Debian/Ubuntu code path exists in the script but is **untested** — see
-> [Platform support](#platform-support) before running it on a `.deb` system.
+> **Status: RPM-based distributions only.** Developed against a live Fedora
+> server using `dnf`. A Debian/Ubuntu code path exists in the script but is
+> **untested** — see [Platform support](#platform-support) before running it on
+> a `.deb` system.
+>
+> **Written by Claude AI** (Claude Opus 5, via Claude Code), directed and tested
+> by a human against a real Plex server. See
+> [How this was built](#how-this-was-built).
 
 It runs on the Plex server, reads the Plex auth token out of the server's own
 `Preferences.xml`, asks plex.tv what the newest build is, compares it against
@@ -43,12 +48,18 @@ by hand. This script does the whole thing in place.
 
 | Platform | Status |
 | -------- | ------ |
-| Fedora / RHEL / CentOS / SUSE (`rpm`, `dnf`) | **Supported** — tested |
+| Fedora / RHEL / CentOS / SUSE (`rpm`, `dnf`) | **Supported** |
 | Debian / Ubuntu (`deb`, `apt`) | **Untested** — code path present, unverified |
 | Anything else | Not supported |
 
 Architecture detection covers `x86_64`, `aarch64`, `armv7l` and `i686`, but only
 `x86_64` has been exercised in practice.
+
+Being precise about what "supported" means: version detection, channel
+selection, the plex.tv manifest lookup, session checking and the `--check` /
+`--dry-run` / prompt paths have all been run against a live Fedora Plex server.
+The final download-install-restart sequence is written but has not yet been
+exercised end to end. Use `--dry-run` first.
 
 If you run this on Debian or Ubuntu, start with `--check` and `--dry-run`, and
 please open an issue either way — confirmation that it works is as useful as a
@@ -131,6 +142,20 @@ this script own the package.
 
 **Streams.** The script checks `/status/sessions` and refuses to restart the
 server while anything is playing. `--ignore-sessions` overrides that.
+
+## How this was built
+
+This script was written by **Claude AI** (Claude Opus 5, running in
+[Claude Code](https://claude.com/claude-code)), working against a real Fedora
+Plex Media Server over SSH rather than from a generic template. The Plex
+downloads API shape, the `Preferences.xml` token location, the package naming
+and the version-comparison behavior were all confirmed against that live server
+before being written into the script — and the check, dry-run and prompt paths
+were run there afterward.
+
+It's disclosed here because you deserve to know how the code in front of you was
+produced. Judge it on whether it works and reads clearly, and please report
+anything that doesn't.
 
 ## License
 
