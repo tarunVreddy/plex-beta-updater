@@ -105,7 +105,7 @@ sudo plex-beta-updater.sh [options]
       --ignore-active    Update even if streams/recordings are in progress
       --recording-lead-time <min>
                          Block if a DVR recording starts within N minutes
-                         (default: 15, 0 disables)
+                         (default: 5, 0 disables)
       --keep             Keep the downloaded package
       --download-dir <d> Where to download to (default: /var/cache/plex-beta-updater)
   -q, --quiet            Only print warnings and errors
@@ -153,7 +153,7 @@ touches anything:
 | Active streams | `/status/sessions` | Anyone watching |
 | Live TV sessions | `/livetv/sessions` | A DVR recording in progress, watched or not |
 | Transcodes | `/transcode/sessions` | Background DVR work holding no playback session |
-| Upcoming recordings | `/media/subscriptions` | A recording due to start within `--recording-lead-time` (default 15 min) |
+| Upcoming recordings | `/media/subscriptions` | A recording due to start within `--recording-lead-time` (default 5 min) |
 
 The lead-time check matters because a restart takes long enough to clip the
 opening minutes of a recording that starts moments later. Set

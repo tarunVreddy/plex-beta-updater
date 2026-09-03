@@ -27,7 +27,7 @@ CHECK_ONLY=0
 DRY_RUN=0
 FORCE=0
 IGNORE_ACTIVE=0
-RECORDING_LEAD_TIME=15   # minutes of headroom to leave before a DVR recording
+RECORDING_LEAD_TIME=5    # minutes of headroom to leave before a DVR recording
 KEEP_PACKAGE=0
 QUIET=0
 
@@ -74,7 +74,7 @@ ${C_BOLD}OPTIONS${C_RESET}
                            are in progress (alias: --ignore-sessions)
         --recording-lead-time <min>
                            Refuse to update if a DVR recording is scheduled
-                           within this many minutes (default: 15, 0 disables)
+                           within this many minutes (default: 5, 0 disables)
         --keep             Keep the downloaded package instead of deleting it
         --download-dir <d> Where to download to (default: $DOWNLOAD_DIR)
     -q, --quiet            Only print warnings and errors
