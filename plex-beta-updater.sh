@@ -26,7 +26,8 @@ ASSUME_YES=0
 CHECK_ONLY=0
 DRY_RUN=0
 FORCE=0
-IGNORE_SESSIONS=0
+IGNORE_ACTIVE=0
+RECORDING_LEAD_TIME=15   # minutes of headroom to leave before a DVR recording
 KEEP_PACKAGE=0
 QUIET=0
 
@@ -69,7 +70,11 @@ ${C_BOLD}OPTIONS${C_RESET}
     -n, --dry-run          Do everything except download and install
     -y, --yes              Don't prompt; install if an update is available
     -f, --force            Reinstall even if the available build is not newer
-        --ignore-sessions  Update even while something is streaming
+        --ignore-active    Update even if streams, recordings or transcodes
+                           are in progress (alias: --ignore-sessions)
+        --recording-lead-time <min>
+                           Refuse to update if a DVR recording is scheduled
+                           within this many minutes (default: 15, 0 disables)
         --keep             Keep the downloaded package instead of deleting it
         --download-dir <d> Where to download to (default: $DOWNLOAD_DIR)
     -q, --quiet            Only print warnings and errors
@@ -98,7 +103,13 @@ while [[ $# -gt 0 ]]; do
         -n|--dry-run)       DRY_RUN=1; shift ;;
         -y|--yes)           ASSUME_YES=1; shift ;;
         -f|--force)         FORCE=1; shift ;;
-        --ignore-sessions)  IGNORE_SESSIONS=1; shift ;;
+        --ignore-active)    IGNORE_ACTIVE=1; shift ;;
+        --ignore-sessions)  IGNORE_ACTIVE=1; shift ;;   # kept for compatibility
+        --recording-lead-time)
+                            RECORDING_LEAD_TIME="${2:?--recording-lead-time needs a value}"
+                            [[ "$RECORDING_LEAD_TIME" =~ ^[0-9]+$ ]] \
+                                || die "--recording-lead-time wants a whole number of minutes"
+                            shift 2 ;;
         --keep)             KEEP_PACKAGE=1; shift ;;
         --download-dir)     DOWNLOAD_DIR="${2:?--download-dir needs a value}"; shift 2 ;;
         -q|--quiet)         QUIET=1; shift ;;
@@ -239,10 +250,119 @@ is_newer() {
 
 # ------------------------------------------------------------------- steps ---
 
-active_sessions() {
+# Read MediaContainer.size from a local endpoint. Echoes an integer, or the
+# word "unknown" if the server could not be reached or sent something odd.
+#
+# This must parse real JSON. Plex session payloads also carry a Part "size"
+# field (the media file's byte count), so a regex that grabs the last match
+# reports a file size where a session count belongs.
+container_size() {
+    local endpoint="$1" body
+    body="$(plex_curl "$PLEX_URL$endpoint" 2>/dev/null)" || { echo "unknown"; return; }
+    if [[ "$JSON_TOOL" == "python3" ]]; then
+        python3 -c '
+import json, sys
+try:
+    print(int(json.load(sys.stdin).get("MediaContainer", {}).get("size", 0)))
+except Exception:
+    print("unknown")' <<<"$body" 2>/dev/null || echo "unknown"
+    else
+        jq -re '.MediaContainer.size // 0' <<<"$body" 2>/dev/null || echo "unknown"
+    fi
+}
+
+# Whole minutes until the next scheduled DVR recording. Echoes an integer,
+# "none" if nothing is scheduled, or "unknown" if the DVR could not be queried.
+# A server with no DVR configured simply reports "none".
+next_recording_minutes() {
     local body
-    body="$(plex_curl "$PLEX_URL/status/sessions" 2>/dev/null)" || { echo "unknown"; return; }
-    sed -n 's/.*"size"[: ]*\([0-9]*\).*/\1/p' <<<"$body" | head -1
+    body="$(plex_curl "$PLEX_URL/media/subscriptions" 2>/dev/null)" || { echo "unknown"; return; }
+    if [[ "$JSON_TOOL" == "python3" ]]; then
+        python3 -c '
+import json, sys, time
+try:
+    subs = json.load(sys.stdin).get("MediaContainer", {}).get("MediaSubscription", [])
+except Exception:
+    print("unknown"); sys.exit()
+now = time.time()
+upcoming = []
+for sub in subs:
+    ts = sub.get("Directory", {}).get("nextScheduledRecording")
+    if ts:
+        delta = int(ts) - now
+        if delta >= 0:
+            upcoming.append(delta)
+print(int(min(upcoming) // 60) if upcoming else "none")' <<<"$body" 2>/dev/null || echo "unknown"
+    else
+        jq -r '[.MediaContainer.MediaSubscription[]?.Directory.nextScheduledRecording
+                | select(. != null) | tonumber - now | select(. >= 0)]
+               | if length == 0 then "none" else (min / 60 | floor) end' \
+            <<<"$body" 2>/dev/null || echo "unknown"
+    fi
+}
+
+# Name what is actually going on, so "1 active stream" is actionable.
+describe_activity() {
+    local body
+    body="$(plex_curl "$PLEX_URL/status/sessions" 2>/dev/null)" || return 0
+    [[ "$JSON_TOOL" == "python3" ]] || return 0
+    python3 -c '
+import json, sys
+try:
+    items = json.load(sys.stdin).get("MediaContainer", {}).get("Metadata", [])
+except Exception:
+    sys.exit()
+for m in items:
+    who = m.get("User", {}).get("title", "someone")
+    state = m.get("Player", {}).get("state", "unknown")
+    show = m.get("grandparentTitle")
+    title = m.get("title", "something")
+    label = f"{show} - {title}" if show else title
+    print(f"       {who}: {label} ({state})")' <<<"$body" 2>/dev/null || true
+}
+
+# Collect every reason the server is too busy to restart right now.
+# Populates BUSY_REASONS. Unreachable checks warn rather than silently pass:
+# assuming idle because the API did not answer is how you cut off a stream.
+BUSY_REASONS=()
+check_busy() {
+    BUSY_REASONS=()
+    local n mins
+
+    n="$(container_size /status/sessions)"
+    if [[ "$n" == "unknown" ]]; then
+        warn "could not check for active streams at $PLEX_URL"
+    elif (( n > 0 )); then
+        BUSY_REASONS+=("$n active stream(s)")
+    fi
+
+    # A DVR recording in progress holds a Live TV session, whether or not
+    # anybody is watching it.
+    n="$(container_size /livetv/sessions)"
+    if [[ "$n" == "unknown" ]]; then
+        warn "could not check for Live TV / recording sessions"
+    elif (( n > 0 )); then
+        BUSY_REASONS+=("$n Live TV / recording session(s)")
+    fi
+
+    # Catches background DVR work that holds no playback session.
+    n="$(container_size /transcode/sessions)"
+    if [[ "$n" == "unknown" ]]; then
+        warn "could not check for active transcodes"
+    elif (( n > 0 )); then
+        BUSY_REASONS+=("$n active transcode(s)")
+    fi
+
+    # Restarting just before a recording starts loses the opening minutes,
+    # so treat an imminent recording as busy too.
+    if (( RECORDING_LEAD_TIME > 0 )); then
+        mins="$(next_recording_minutes)"
+        if [[ "$mins" == "unknown" ]]; then
+            warn "could not check the DVR schedule"
+        elif [[ "$mins" != "none" ]] && (( mins <= RECORDING_LEAD_TIME )); then
+            BUSY_REASONS+=("a DVR recording starts in ${mins} min")
+        fi
+    fi
 }
 
 confirm() {
@@ -313,15 +433,23 @@ if (( CHECK_ONLY )); then
     exit "$EX_UPDATE_AVAILABLE"
 fi
 
-SESSIONS="$(active_sessions)"
-if [[ "$SESSIONS" == "unknown" ]]; then
-    warn "could not check for active streams at $PLEX_URL"
-elif (( SESSIONS > 0 )); then
-    if (( IGNORE_SESSIONS )); then
-        warn "$SESSIONS active stream(s); continuing because --ignore-sessions was given"
+info "Checking for activity on the server"
+check_busy
+if (( ${#BUSY_REASONS[@]} > 0 )); then
+    for reason in "${BUSY_REASONS[@]}"; do
+        step "busy: $reason"
+    done
+    describe_activity
+    if (( IGNORE_ACTIVE )); then
+        warn "server is busy; continuing anyway because --ignore-active was given"
     else
-        die "$SESSIONS active stream(s) right now. Re-run later, or pass --ignore-sessions"
+        printf '%serr %s %s\n' "$C_RED" "$C_RESET" \
+            "The server is busy, so it was left alone." >&2
+        printf '      Re-run when it is idle, or pass --ignore-active to override.\n' >&2
+        exit "$EX_ERR"
     fi
+else
+    step "no streams, recordings or transcodes in progress"
 fi
 
 printf '\n%sUpdate available:%s %s -> %s%s%s (%s channel)\n' \

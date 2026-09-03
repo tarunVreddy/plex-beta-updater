@@ -39,7 +39,8 @@ by hand. This script does the whole thing in place.
 - Fetches the release manifest for the `plexpass` or `public` channel
 - Detects your distro family (rpm/deb) and architecture and picks the right package
 - Compares the installed version to the available one and stops early if you're current
-- Refuses to interrupt an active stream unless you tell it to
+- Refuses to interrupt an active stream, an in-progress DVR recording, a
+  running transcode, or a recording that's about to start
 - Verifies the published SHA-1 checksum before installing
 - Installs via `dnf`/`rpm` or `apt-get`, restarts the service, and confirms the
   running server actually came back on the new version
@@ -101,7 +102,10 @@ sudo plex-beta-updater.sh [options]
   -n, --dry-run          Do everything except download and install
   -y, --yes              Don't prompt; install if an update is available
   -f, --force            Reinstall even if the available build is not newer
-      --ignore-sessions  Update even while something is streaming
+      --ignore-active    Update even if streams/recordings are in progress
+      --recording-lead-time <min>
+                         Block if a DVR recording starts within N minutes
+                         (default: 15, 0 disables)
       --keep             Keep the downloaded package
       --download-dir <d> Where to download to (default: /var/cache/plex-beta-updater)
   -q, --quiet            Only print warnings and errors
@@ -140,8 +144,25 @@ routine `dnf upgrade` won't touch it — but `dnf distro-sync` would downgrade y
 If that's a concern, add `exclude=plexmediaserver` to the Plex repo file and let
 this script own the package.
 
-**Streams.** The script checks `/status/sessions` and refuses to restart the
-server while anything is playing. `--ignore-sessions` overrides that.
+**Streams and recordings.** Restarting Plex kills in-flight playback *and*
+truncates any recording in progress, so the script checks four things before it
+touches anything:
+
+| Check | Endpoint | Catches |
+| ----- | -------- | ------- |
+| Active streams | `/status/sessions` | Anyone watching |
+| Live TV sessions | `/livetv/sessions` | A DVR recording in progress, watched or not |
+| Transcodes | `/transcode/sessions` | Background DVR work holding no playback session |
+| Upcoming recordings | `/media/subscriptions` | A recording due to start within `--recording-lead-time` (default 15 min) |
+
+The lead-time check matters because a restart takes long enough to clip the
+opening minutes of a recording that starts moments later. Set
+`--recording-lead-time 0` to skip it, or `--ignore-active` to override the whole
+set. Servers with no DVR configured just see no upcoming recordings.
+
+If any of these checks can't reach the server, the script says so and treats the
+state as unknown rather than assuming the server is idle — guessing "idle" is
+how you cut off someone's movie.
 
 ## How this was built
 
@@ -156,6 +177,14 @@ end-to-end beta upgrade on that server.
 It's disclosed here because you deserve to know how the code in front of you was
 produced. Judge it on whether it works and reads clearly, and please report
 anything that doesn't.
+
+## Credits
+
+Thanks to [biggux/plex-autoupdate](https://github.com/biggux/plex-autoupdate)
+(MIT), a similar tool that solves the unattended case. Two ideas here are its
+influence rather than mine: parsing `MediaContainer.size` with a real JSON
+parser instead of a regex, and printing *who* is streaming *what* rather than a
+bare count. The code in this repo is independently written.
 
 ## License
 
